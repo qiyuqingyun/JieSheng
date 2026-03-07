@@ -7,10 +7,24 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Local env and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
 node_modules
 dist
 dist-ssr
+build
+coverage
 *.local
+*.tsbuildinfo
+
+# Rust / Tauri build artifacts
+src-tauri/target
+src-tauri/.cargo
 
 # Editor directories and files
 .vscode/*
