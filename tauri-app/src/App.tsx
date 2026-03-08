@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import RichEditor from "./components/RichEditor";
 import SearchPanel from "./components/SearchPanel";
 import KeySettingsPanel from "./components/KeySettingsPanel";
+import OutlinePanel from "./components/OutlinePanel";
+import OutlineEditor from "./components/OutlineEditor";
+import CreateItemDialog from "./components/CreateItemDialog";
 import { useProject } from "./contexts/ProjectContext";
 import { useKeyBindings } from "./contexts/KeyBindingsContext";
 import "./App.css";
@@ -10,35 +13,49 @@ function App() {
   const {
     projectMetadata,
     currentChapterId,
+    currentOutlineId,
     hasUnsavedChanges,
     newProject,
     openProject,
+    closeProject,
     createChapter,
     loadChapter,
     saveCurrentChapter,
+    saveCurrentOutline,
+    createOutline,
+    loadOutline,
     isProjectOpen,
   } = useProject();
 
   const { getBinding } = useKeyBindings();
 
-  const [showOutline, setShowOutline] = useState(true);
+  const [leftPanel, setLeftPanel] = useState<'chapters' | 'outline'>('chapters'); // 左侧面板：章节列表/大纲
   const [showAI, setShowAI] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const [showSearchPanel, setShowSearchPanel] = useState(false);
   const [showKeySettings, setShowKeySettings] = useState(false);
+  const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false);
+  const [showCreateChapterDialog, setShowCreateChapterDialog] = useState(false);
+  const [showCreateOutlineDialog, setShowCreateOutlineDialog] = useState(false);
 
   // 处理新建章节
   const handleCreateChapter = () => {
-    const title = prompt("请输入章节标题:");
-    if (title) {
-      createChapter(title);
-    }
+    setShowCreateChapterDialog(true);
+  };
+
+  // 处理新建大纲
+  const handleCreateOutline = () => {
+    setShowCreateOutlineDialog(true);
   };
 
   // 处理保存（Ctrl+S）
   const handleSave = () => {
     if (hasUnsavedChanges) {
-      saveCurrentChapter();
+      if (leftPanel === "outline" && currentOutlineId) {
+        saveCurrentOutline();
+      } else if (currentChapterId) {
+        saveCurrentChapter();
+      }
     }
   };
 
@@ -124,7 +141,7 @@ function App() {
               {!isProjectOpen() ? (
                 <>
                   <button
-                    onClick={newProject}
+                    onClick={() => setShowCreateProjectDialog(true)}
                     className="px-3 py-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
                   >
                     新建项目
@@ -139,6 +156,13 @@ function App() {
               ) : (
                 <>
                   <button
+                    onClick={closeProject}
+                    className="px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded border border-gray-300"
+                    title="关闭项目并返回主界面"
+                  >
+                    ← 返回
+                  </button>
+                  <button
                     onClick={handleSave}
                     disabled={!hasUnsavedChanges}
                     className="px-3 py-1 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
@@ -146,10 +170,24 @@ function App() {
                     保存 (Ctrl+S)
                   </button>
                   <button
-                    onClick={() => setShowOutline(!showOutline)}
-                    className="px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded"
+                    onClick={() => setLeftPanel('chapters')}
+                    className={`px-3 py-1 text-sm font-medium rounded ${
+                      leftPanel === 'chapters'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
                   >
-                    {showOutline ? "📑 大纲" : "显示大纲"}
+                    📑 章节
+                  </button>
+                  <button
+                    onClick={() => setLeftPanel('outline')}
+                    className={`px-3 py-1 text-sm font-medium rounded ${
+                      leftPanel === 'outline'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    📋 大纲
                   </button>
                   <button
                     onClick={() => setShowAI(!showAI)}
@@ -185,61 +223,89 @@ function App() {
         </header>
       )}
 
-      {/* 专注模式提示 */}
+      {/* 专注模式按镰 - 可点击退出 */}
       {focusMode && (
-        <div className="absolute top-2 right-2 z-50 text-xs text-gray-400 bg-black bg-opacity-70 px-3 py-1 rounded-full">
-          专注模式 · 按 Ctrl+\ 或 F11 退出
-        </div>
+        <button
+          onClick={toggleFocusMode}
+          className="fixed bottom-4 right-4 z-50 text-xs text-gray-100 bg-black bg-opacity-75 px-3 py-2 rounded-full shadow-lg hover:bg-opacity-90 transition-all cursor-pointer"
+          title="点击退出专注模式"
+        >
+          退出专注模式
+        </button>
       )}
 
       {/* 主编辑区 */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 左侧大纲面板 - 专注模式下隐藏 */}
-        {!focusMode && showOutline && isProjectOpen() && (
-          <aside className="w-64 border-r border-gray-200 bg-gray-50 p-4 overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-gray-900">章节列表</h2>
-              <button
-                onClick={handleCreateChapter}
-                className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
-                title="新建章节"
-              >
-                + 新建
-              </button>
-            </div>
-            <div className="space-y-1">
-              {projectMetadata?.chapters.map((chapter) => (
-                <div
-                  key={chapter.id}
-                  onClick={() => loadChapter(chapter.id)}
-                  className={`p-2 rounded cursor-pointer text-sm ${
-                    currentChapterId === chapter.id
-                      ? "bg-blue-100 text-blue-900 font-medium"
-                      : "text-gray-700 hover:bg-white"
-                  }`}
-                >
-                  {chapter.title}
+        {/* 左侧面板 - 专注模式下隐藏 */}
+        {!focusMode && isProjectOpen() && (
+          <aside className="w-64 border-r border-gray-200 bg-gray-50 flex flex-col">
+            {leftPanel === 'chapters' ? (
+              // 章节列表
+              <>
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-900">章节列表</h2>
+                  <button
+                    onClick={handleCreateChapter}
+                    className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+                    title="新建章节"
+                  >
+                    + 新建
+                  </button>
                 </div>
-              ))}
-              {(!projectMetadata?.chapters || projectMetadata.chapters.length === 0) && (
-                <div className="p-2 text-sm text-gray-400 text-center">
-                  暂无章节，点击"新建"创建
+                <div className="flex-1 overflow-y-auto p-4 space-y-1">
+                  {projectMetadata?.chapters.map((chapter) => (
+                    <div
+                      key={chapter.id}
+                      onClick={() => loadChapter(chapter.id)}
+                      className={`p-2 rounded cursor-pointer text-sm ${
+                        currentChapterId === chapter.id
+                          ? "bg-blue-100 text-blue-900 font-medium"
+                          : "text-gray-700 hover:bg-white"
+                      }`}
+                    >
+                      {chapter.title}
+                    </div>
+                  ))}
+                  {(!projectMetadata?.chapters || projectMetadata.chapters.length === 0) && (
+                    <div className="p-2 text-sm text-gray-400 text-center">
+                      暂无章节，点击"新建"创建
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            ) : (
+              // 大纲面板
+              <>
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-900">大纲列表</h2>
+                  <button
+                    onClick={handleCreateOutline}
+                    className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+                    title="新建大纲"
+                  >
+                    + 新建
+                  </button>
+                </div>
+                <OutlinePanel />
+              </>
+            )}
           </aside>
         )}
 
         {/* 中间编辑器 */}
         <main className="flex-1 flex flex-col overflow-hidden bg-white">
           {isProjectOpen() ? (
-            currentChapterId ? (
+            leftPanel === 'outline' && currentOutlineId ? (
+              // 大纲编辑模式
+              <OutlineEditor />
+            ) : currentChapterId ? (
+              // 章节编辑模式
               <RichEditor />
             ) : (
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg mb-2">📝</p>
-                  <p>请从左侧选择或创建章节开始写作</p>
+                  <p>请从左侧选择或创建章节/大纲开始写作</p>
                 </div>
               </div>
             )
@@ -254,11 +320,11 @@ function App() {
           )}
         </main>
 
-        {/* 右侧 AI 助手面板 - 专注模式下隐藏 */}
+        {/* 右侧AI助手面板 - 专注模式下隐藏 */}
         {!focusMode && showAI && isProjectOpen() && (
-          <aside className="w-80 border-l border-gray-200 bg-linear-to-b from-blue-50 to-white flex flex-col">
+          <aside className="w-80 border-l border-gray-200 bg-gray-50 flex flex-col">
             <div className="border-b border-gray-200 p-4">
-              <h2 className="font-semibold text-gray-900">🤖 AI助手</h2>
+              <h2 className="text-sm font-semibold text-gray-900">🤖 AI助手</h2>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               <div className="rounded bg-white p-3 text-sm text-gray-600 border border-gray-200">
@@ -270,7 +336,7 @@ function App() {
                 placeholder="向AI提问或请求帮助..."
                 className="w-full rounded border border-gray-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={3}
-              />
+              ></textarea>
               <button className="mt-2 w-full rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
                 发送（Ctrl+Enter）
               </button>
@@ -282,6 +348,36 @@ function App() {
       {showSearchPanel && (
         <SearchPanel onClose={() => setShowSearchPanel(false)} />
       )}
+
+      <CreateItemDialog
+        open={showCreateProjectDialog}
+        title="新建项目"
+        label="作品名称"
+        placeholder="例如：我的长篇小说"
+        confirmText="下一步：选择位置"
+        onClose={() => setShowCreateProjectDialog(false)}
+        onConfirm={(projectName) => newProject(projectName)}
+      />
+
+      <CreateItemDialog
+        open={showCreateChapterDialog}
+        title="新建章节"
+        label="章节标题"
+        placeholder="例如：第一章 雨夜来信"
+        confirmText="创建章节"
+        onClose={() => setShowCreateChapterDialog(false)}
+        onConfirm={(title) => createChapter(title)}
+      />
+
+      <CreateItemDialog
+        open={showCreateOutlineDialog}
+        title="新建大纲"
+        label="大纲标题"
+        placeholder="例如：世界观总纲"
+        confirmText="创建大纲"
+        onClose={() => setShowCreateOutlineDialog(false)}
+        onConfirm={(title) => createOutline(title)}
+      />
 
       {/* 快捷键设置面板 */}
       {showKeySettings && (

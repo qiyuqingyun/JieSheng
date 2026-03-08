@@ -14,15 +14,19 @@ interface KeyBindingsContextType {
 }
 
 const defaultBindings: KeyBinding[] = [
-  { action: 'save', keys: 'ctrl+s', description: '保存章节' },
+  { action: 'save', keys: 'ctrl+s', description: '保存当前内容' },
   { action: 'search', keys: 'ctrl+f', description: '搜索' },
-  { action: 'bold', keys: 'ctrl+b', description: '粗体' },
-  { action: 'italic', keys: 'ctrl+i', description: '斜体' },
-  { action: 'underline', keys: 'ctrl+u', description: '下划线' },
   { action: 'undo', keys: 'ctrl+z', description: '撤销' },
   { action: 'redo', keys: 'ctrl+y', description: '重做' },
   { action: 'focusMode', keys: 'ctrl+\\', description: '专注模式' },
 ];
+
+const normalizeBindings = (savedBindings: KeyBinding[]): KeyBinding[] => {
+  return defaultBindings.map((defaultBinding) => {
+    const saved = savedBindings.find((b) => b.action === defaultBinding.action);
+    return saved ? { ...defaultBinding, keys: saved.keys } : defaultBinding;
+  });
+};
 
 const KeyBindingsContext = createContext<KeyBindingsContextType | undefined>(undefined);
 
@@ -34,8 +38,10 @@ export const KeyBindingsProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const saved = localStorage.getItem('keyBindings');
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        setBindings(parsed);
+        const parsed = JSON.parse(saved) as KeyBinding[];
+        const normalized = normalizeBindings(parsed);
+        setBindings(normalized);
+        localStorage.setItem('keyBindings', JSON.stringify(normalized));
       } catch (e) {
         console.error('加载快捷键配置失败:', e);
       }

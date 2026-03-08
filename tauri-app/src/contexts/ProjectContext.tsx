@@ -1,9 +1,17 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, message } from '@tauri-apps/plugin-dialog';
 
 // 章节信息类型
 export interface ChapterInfo {
+  id: string;
+  title: string;
+  filename: string;
+  order: number;
+}
+
+// 大纲信息类型
+export interface OutlineInfo {
   id: string;
   title: string;
   filename: string;
@@ -14,6 +22,7 @@ export interface ChapterInfo {
 export interface ProjectMetadata {
   name: string;
   chapters: ChapterInfo[];
+  outlines: OutlineInfo[];
 }
 
 // Context 状态类型
@@ -22,11 +31,14 @@ interface ProjectContextType {
   projectMetadata: ProjectMetadata | null;
   currentChapterId: string | null;
   currentChapterContent: string;
+  currentOutlineId: string | null;
+  currentOutlineContent: string;
   hasUnsavedChanges: boolean;
   
   // 项目操作
-  newProject: () => Promise<void>;
+  newProject: (projectName: string) => Promise<void>;
   openProject: () => Promise<void>;
+  closeProject: () => void;
   
   // 章节操作
   createChapter: (title: string) => Promise<void>;
@@ -34,6 +46,12 @@ interface ProjectContextType {
   saveCurrentChapter: () => Promise<void>;
   updateChapterContent: (content: string) => void;
   reorderChapters: (chapters: ChapterInfo[]) => Promise<void>;
+  
+  // 大纲操作
+  createOutline: (title: string) => Promise<void>;
+  loadOutline: (outlineId: string) => Promise<void>;
+  saveCurrentOutline: () => Promise<void>;
+  updateOutlineContent: (content: string) => void;
   
   // 状态查询
   isProjectOpen: () => boolean;
@@ -46,6 +64,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [projectMetadata, setProjectMetadata] = useState<ProjectMetadata | null>(null);
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
   const [currentChapterContent, setCurrentChapterContent] = useState('');
+  const [currentOutlineId, setCurrentOutlineId] = useState<string | null>(null);
+  const [currentOutlineContent, setCurrentOutlineContent] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // 应用启动时，尝试恢复草稿
@@ -91,34 +111,37 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [projectPath, currentChapterId, currentChapterContent, hasUnsavedChanges]);
 
   // 创建新项目
-  const newProject = useCallback(async () => {
+  const newProject = useCallback(async (projectName: string) => {
     try {
-      const selectedPath = await save({
-        title: '新建项目',
-        defaultPath: '我的小说',
+      const selectedPath = await open({
+        title: '选择项目保存位置',
+        directory: true,
       });
 
       if (selectedPath) {
-        const projectName = selectedPath.split(/[\\/]/).pop() || '未命名项目';
+        const basePath = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+        const safeProjectName = projectName.trim() || '未命名项目';
+        const projectPath = `${basePath}\\${safeProjectName}`;
+
         try {
           const metadata = await invoke<ProjectMetadata>('new_project', {
-            projectPath: selectedPath,
-            projectName,
+            projectPath,
+            projectName: safeProjectName,
           });
 
-          setProjectPath(selectedPath);
+          setProjectPath(projectPath);
           setProjectMetadata(metadata);
           setCurrentChapterId(null);
           setCurrentChapterContent('');
           setHasUnsavedChanges(false);
         } catch (invokeError) {
           console.error('创建项目失败:', invokeError);
-          alert(`❌ 创建项目失败: ${invokeError}\n\n请确保选择的路径有写入权限。`);
+          await message(`❌ 创建项目失败: ${invokeError}\n\n请确保选择的路径有写入权限。`, { title: '创建项目失败', kind: 'error' });
         }
       }
     } catch (error) {
-      console.error('打开保存对话框失败:', error);
-      alert(`❌ 创建项目失败: ${error}`);
+      console.error('打开目录对话框失败:', error);
+      await message(`❌ 创建项目失败: ${error}`, { title: '创建项目失败', kind: 'error' });
     }
   }, []);
 
@@ -143,13 +166,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setHasUnsavedChanges(false);
         } catch (invokeError) {
           // Tauri invoke 失败，说明不是有效的 Writer's IDE 项目
-          console.error('项目文件无效:', invokeError);
-          alert('❌ 错误：选择的文件夹不是有效的 Writer\'s IDE 项目。\n\n请确保文件夹包含 project.json 文件。');
+          console.error('[前端] Rust 调用失败:', invokeError);
+          
+          await message(`选择的文件夹不是有效的 Writer's IDE 项目。\n\n${invokeError}`, { 
+            title: '打开项目失败', 
+            kind: 'error' 
+          });
         }
       }
     } catch (error) {
       console.error('打开项目对话框失败:', error);
-      alert(`❌ 打开项目失败: ${error}`);
+      await message(`❌ 打开项目失败: ${error}`, { title: '打开项目失败', kind: 'error' });
     }
   }, []);
 
@@ -168,7 +195,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setProjectMetadata(metadata);
     } catch (error) {
       console.error('创建章节失败:', error);
-      alert(`❌ 创建章节失败: ${error}\n\n请检查项目文件夹权限。`);
+      await message(`❌ 创建章节失败: ${error}\n\n请检查项目文件夹权限。`, { title: '创建章节失败', kind: 'error' });
     }
   }, [projectPath]);
 
@@ -187,7 +214,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           });
         } catch (saveError) {
           console.error('保存章节时出错:', saveError);
-          alert(`❌ 保存失败: ${saveError}\n\n请检查文件夹权限。`);
+          await message(`❌ 保存失败: ${saveError}\n\n请检查文件夹权限。`, { title: '保存失败', kind: 'error' });
           return;
         }
       }
@@ -203,11 +230,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setHasUnsavedChanges(false);
       } catch (loadError) {
         console.error('加载章节失败:', loadError);
-        alert(`❌ 加载章节失败: ${loadError}\n\n章节文件可能已被删除。`);
+        await message(`❌ 加载章节失败: ${loadError}\n\n章节文件可能已被删除。`, { title: '加载章节失败', kind: 'error' });
       }
     } catch (error) {
       console.error('加载章节失败:', error);
-      alert(`❌ 加载章节失败: ${error}`);
+      await message(`❌ 加载章节失败: ${error}`, { title: '加载章节失败', kind: 'error' });
     }
   }, [projectPath, hasUnsavedChanges, currentChapterId, currentChapterContent]);
 
@@ -230,7 +257,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.removeItem(`${draftKey}_timestamp`);
     } catch (error) {
       console.error('保存章节失败:', error);
-      alert(`❌ 保存失败: ${error}\n\n请检查文件夹权限或磁盘空间。`);
+      await message(`❌ 保存失败: ${error}\n\n请检查文件夹权限或磁盘空间。`, { title: '保存失败', kind: 'error' });
     }
   }, [projectPath, currentChapterId, currentChapterContent]);
 
@@ -258,7 +285,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setProjectMetadata(updatedMetadata);
     } catch (error) {
       console.error('更新章节顺序失败:', error);
-      alert(`❌ 更新章节顺序失败: ${error}\n\n请检查文件夹权限。`);
+      await message(`❌ 更新章节顺序失败: ${error}\n\n请检查文件夹权限。`, { title: '更新章节顺序失败', kind: 'error' });
     }
   }, [projectPath, projectMetadata]);
 
@@ -267,21 +294,113 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return projectPath !== null && projectMetadata !== null;
   }, [projectPath, projectMetadata]);
 
+  // 关闭项目
+  const closeProject = useCallback(() => {
+    if (hasUnsavedChanges) {
+      const shouldClose = window.confirm('有未保存的更改，确定要关闭项目吗？');
+      if (!shouldClose) return;
+    }
+    
+    // 清除状态
+    setProjectPath(null);
+    setProjectMetadata(null);
+    setCurrentChapterId(null);
+    setCurrentChapterContent('');
+    setCurrentOutlineId(null);
+    setCurrentOutlineContent('');
+    setHasUnsavedChanges(false);
+  }, [hasUnsavedChanges]);
+
+  // 创建新大纲
+  const createOutline = useCallback(async (title: string) => {
+    if (!projectPath) return;
+
+    try {
+      const outlineId = `outline_${Date.now()}`;
+      const updatedMetadata = await invoke<ProjectMetadata>('create_outline', {
+        projectPath,
+        outlineTitle: title,
+        outlineId,
+      });
+
+      setProjectMetadata(updatedMetadata);
+      // 自动加载新创建的大纲
+      loadOutline(outlineId);
+    } catch (error) {
+      console.error('创建大纲失败:', error);
+      await message(`❌ 创建大纲失败: ${error}`, { title: '创建大纲失败', kind: 'error' });
+    }
+  }, [projectPath]);
+
+  // 加载大纲
+  const loadOutline = useCallback(async (outlineId: string) => {
+    if (!projectPath) return;
+
+    try {
+      const content = await invoke<string>('load_outline', {
+        projectPath,
+        outlineId,
+      });
+
+      setCurrentOutlineId(outlineId);
+      setCurrentOutlineContent(content);
+      setCurrentChapterId(null); // 切换到大纲时清除章节
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('加载大纲失败:', error);
+      await message(`❌ 加载大纲失败: ${error}`, { title: '加载大纲失败', kind: 'error' });
+    }
+  }, [projectPath]);
+
+  // 保存当前大纲
+  const saveCurrentOutline = useCallback(async () => {
+    if (!projectPath || !currentOutlineId) return;
+
+    try {
+      await invoke('save_outline', {
+        projectPath,
+        outlineId: currentOutlineId,
+        content: currentOutlineContent,
+      });
+
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('保存大纲失败:', error);
+      await message(`❌ 保存大纲失败: ${error}`, { title: '保存大纲失败', kind: 'error' });
+    }
+  }, [projectPath, currentOutlineId, currentOutlineContent]);
+
+  // 更新大纲内容
+  const updateOutlineContent = useCallback((content: string) => {
+    setCurrentOutlineContent(content);
+    setHasUnsavedChanges(true);
+  }, []);
+
   // 自动保存：定时器（3秒）+ window blur
   useEffect(() => {
     // 定时自动保存
     const autoSaveInterval = setInterval(() => {
-      if (hasUnsavedChanges && projectPath && currentChapterId) {
-        console.log('自动保存（定时器）...');
-        saveCurrentChapter();
+      if (hasUnsavedChanges && projectPath) {
+        if (currentChapterId) {
+          console.log('自动保存章节（定时器）...');
+          saveCurrentChapter();
+        } else if (currentOutlineId) {
+          console.log('自动保存大纲（定时器）...');
+          saveCurrentOutline();
+        }
       }
     }, 3000); // 每 3 秒检查一次
 
     // 窗口失焦时自动保存
     const handleBlur = () => {
-      if (hasUnsavedChanges && projectPath && currentChapterId) {
-        console.log('自动保存（失焦）...');
-        saveCurrentChapter();
+      if (hasUnsavedChanges && projectPath) {
+        if (currentChapterId) {
+          console.log('自动保存章节（失焦）...');
+          saveCurrentChapter();
+        } else if (currentOutlineId) {
+          console.log('自动保存大纲（失焦）...');
+          saveCurrentOutline();
+        }
       }
     };
     window.addEventListener('blur', handleBlur);
@@ -290,21 +409,28 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clearInterval(autoSaveInterval);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [hasUnsavedChanges, projectPath, currentChapterId, saveCurrentChapter]);
+  }, [hasUnsavedChanges, projectPath, currentChapterId, currentOutlineId, saveCurrentChapter, saveCurrentOutline]);
 
   const value: ProjectContextType = {
     projectPath,
     projectMetadata,
     currentChapterId,
     currentChapterContent,
+    currentOutlineId,
+    currentOutlineContent,
     hasUnsavedChanges,
     newProject,
     openProject,
+    closeProject,
     createChapter,
     loadChapter,
     saveCurrentChapter,
     updateChapterContent,
     reorderChapters,
+    createOutline,
+    loadOutline,
+    saveCurrentOutline,
+    updateOutlineContent,
     isProjectOpen,
   };
 

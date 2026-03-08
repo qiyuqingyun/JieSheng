@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { useKeyBindings } from '../contexts/KeyBindingsContext';
 
 interface KeySettingsPanelProps {
@@ -43,14 +44,21 @@ export default function KeySettingsPanel({ onClose }: KeySettingsPanelProps) {
     }
   };
 
-  const handleReset = () => {
-    if (window.confirm('确定要恢复所有快捷键为默认设置吗？')) {
+  const handleReset = async () => {
+    const confirmed = await confirm('所有自定义快捷键将被重置为默认值', {
+      title: '恢复默认设置',
+      kind: 'warning',
+      okLabel: '确定',
+      cancelLabel: '取消'
+    });
+    
+    if (confirmed) {
       resetToDefaults();
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 bg-black bg-opacity-30 z-50 flex items-center justify-center">
       <div className="bg-white rounded-lg shadow-xl w-96 max-h-96 flex flex-col">
         {/* 标题 */}
         <div className="border-b border-gray-200 p-4 flex items-center justify-between">

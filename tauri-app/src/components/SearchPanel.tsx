@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useProject } from '../contexts/ProjectContext';
 
 interface SearchResult {
@@ -14,7 +15,7 @@ interface SearchPanelProps {
 }
 
 export default function SearchPanel({ onClose }: SearchPanelProps) {
-  const { projectPath, projectMetadata, loadChapter } = useProject();
+  const { projectPath, projectMetadata, currentChapterId, loadChapter } = useProject();
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -30,38 +31,45 @@ export default function SearchPanel({ onClose }: SearchPanelProps) {
     const foundResults: SearchResult[] = [];
 
     try {
-      // 搜索所有章节内容（存储在 localStorage 中的草稿 + 已保存内容）
+      // 搜索所有章节内容（从文件读取）
       const chaptersToSearch = searchScope === 'all' 
         ? projectMetadata.chapters 
-        : projectMetadata.chapters.filter(c => c.id);
+        : projectMetadata.chapters.filter(c => c.id === currentChapterId);
 
       for (const chapter of chaptersToSearch) {
-        // 从 localStorage 获取草稿内容
-        const draftKey = `draft_${projectPath}_${chapter.id}`;
-        const draftContent = localStorage.getItem(draftKey) || '';
-        
-        // 移除 HTML 标签用于搜索
-        const plainText = draftContent.replace(/<[^>]*>/g, '');
-        
-        // 搜索（不区分大小写）
-        const lowerQuery = query.toLowerCase();
-        const lowerText = plainText.toLowerCase();
-        let index = 0;
-
-        while ((index = lowerText.indexOf(lowerQuery, index)) !== -1) {
-          const start = Math.max(0, index - 20);
-          const end = Math.min(plainText.length, index + query.length + 20);
-          const preview = plainText.slice(start, end);
-
-          foundResults.push({
+        try {
+          // 从文件读取章节内容
+          const content = await invoke<string>('load_chapter', {
+            projectPath: projectPath,
             chapterId: chapter.id,
-            chapterTitle: chapter.title,
-            startIndex: index,
-            endIndex: index + query.length,
-            preview: `...${preview}...`,
           });
+          
+          // 移除 HTML 标签用于搜索
+          const plainText = content.replace(/<[^>]*>/g, '');
+          
+          // 搜索（不区分大小写）
+          const lowerQuery = query.toLowerCase();
+          const lowerText = plainText.toLowerCase();
+          let index = 0;
 
-          index += query.length;
+          while ((index = lowerText.indexOf(lowerQuery, index)) !== -1) {
+            const start = Math.max(0, index - 20);
+            const end = Math.min(plainText.length, index + query.length + 20);
+            const preview = plainText.slice(start, end);
+
+            foundResults.push({
+              chapterId: chapter.id,
+              chapterTitle: chapter.title,
+              startIndex: index,
+              endIndex: index + query.length,
+              preview: `...${preview}...`,
+            });
+
+            index += query.length;
+          }
+        } catch (error) {
+          // 章节文件可能不存在，跳过
+          console.warn(`无法读取章节 ${chapter.id}:`, error);
         }
       }
 
