@@ -23,7 +23,6 @@ function App() {
     saveCurrentChapter,
     saveCurrentOutline,
     createOutline,
-    loadOutline,
     isProjectOpen,
   } = useProject();
 
