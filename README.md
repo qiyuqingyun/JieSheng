@@ -76,4 +76,4 @@ yarn tauri build
 - 构建：Vite 7
 
 ## 项目计划
-[MVP 目标与下一步计划](tauri-app\MVP_FEATURES.md)
+[MVP 目标与下一步计划](tauri-app/MVP_FEATURES.md)
