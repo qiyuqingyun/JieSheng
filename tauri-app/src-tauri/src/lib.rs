@@ -20,12 +20,23 @@ pub struct OutlineInfo {
     pub order: usize,
 }
 
+// 角色信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterInfo {
+    pub id: String,
+    pub name: String,
+    pub filename: String,
+    pub role: String,
+    pub tags: Vec<String>,
+}
+
 // 项目元数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMetadata {
     pub name: String,
     pub chapters: Vec<ChapterInfo>,
     pub outlines: Vec<OutlineInfo>,
+    pub characters: Vec<CharacterInfo>,
 }
 
 // 创建新项目
@@ -45,11 +56,16 @@ fn new_project(project_path: String, project_name: String) -> Result<ProjectMeta
     let outlines_dir = path.join("outlines");
     fs::create_dir_all(&outlines_dir)
         .map_err(|e| format!("创建 outlines 目录失败: {}", e))?;    
+    // 创建 characters 子目录
+    let characters_dir = path.join("characters");
+    fs::create_dir_all(&characters_dir)
+        .map_err(|e| format!("创建 characters 目录失败: {}", e))?;
     // 初始化项目元数据
     let metadata = ProjectMetadata {
         name: project_name,
         chapters: Vec::new(),
         outlines: Vec::new(),
+        characters: Vec::new(),
     };
     
     // 保存元数据文件
@@ -100,6 +116,13 @@ fn open_project(project_path: String) -> Result<ProjectMetadata, String> {
         fs::create_dir_all(&outlines_dir)
             .map_err(|e| format!("创建 outlines 目录失败: {}", e))?;
     }
+
+    // 检查并创建 characters 目录（兼容旧项目）
+    let characters_dir = path.join("characters");
+    if !characters_dir.exists() {
+        fs::create_dir_all(&characters_dir)
+            .map_err(|e| format!("创建 characters 目录失败: {}", e))?;
+    }
     
     // 读取元数据文件
     let json = fs::read_to_string(&metadata_path)
@@ -113,12 +136,13 @@ fn open_project(project_path: String) -> Result<ProjectMetadata, String> {
             ProjectMetadata {
                 name: legacy["name"].as_str().unwrap_or("未命名项目").to_string(),
                 chapters: serde_json::from_value(legacy["chapters"].clone()).unwrap_or_default(),
-                outlines: vec![],
+                outlines: serde_json::from_value(legacy["outlines"].clone()).unwrap_or_default(),
+                characters: serde_json::from_value(legacy["characters"].clone()).unwrap_or_default(),
             }
         });
     
-    // 如果是旧项目，更新 project.json 添加 outlines 字段
-    if metadata.outlines.is_empty() {
+    // 如果是旧项目，更新 project.json 添加新增字段
+    if metadata.outlines.is_empty() || metadata.characters.is_empty() {
         let updated_json = serde_json::to_string_pretty(&metadata)
             .map_err(|e| format!("序列化失败: {}", e))?;
         fs::write(&metadata_path, updated_json)
@@ -268,6 +292,213 @@ fn save_outline(project_path: String, outline_id: String, content: String) -> Re
     Ok(())
 }
 
+// 创建新角色
+#[tauri::command]
+fn create_character(
+    project_path: String,
+    character_name: String,
+    character_id: String,
+) -> Result<ProjectMetadata, String> {
+    let path = PathBuf::from(&project_path);
+    let metadata_path = path.join("project.json");
+
+    let json = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("读取项目文件失败: {}", e))?;
+    let mut metadata: ProjectMetadata = serde_json::from_str(&json)
+        .map_err(|e| format!("解析项目文件失败: {}", e))?;
+
+    if metadata
+        .characters
+        .iter()
+        .any(|character| character.name == character_name)
+    {
+        return Err("角色名已存在，请使用其他名称".to_string());
+    }
+
+    let slug = character_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else if c.is_whitespace() {
+                '_'
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    let filename = format!("{}_{}.md", slug, character_id);
+    let new_character = CharacterInfo {
+        id: character_id.clone(),
+        name: character_name.clone(),
+        filename: filename.clone(),
+        role: "配角".to_string(),
+        tags: vec![],
+    };
+    metadata.characters.push(new_character);
+
+    let updated_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("序列化失败: {}", e))?;
+    fs::write(metadata_path, updated_json)
+        .map_err(|e| format!("写入元数据失败: {}", e))?;
+
+    let template = format!(
+        "---\nid: {}\nschema_version: 1\nname: {}\naliases: []\nrole: 配角\ntags: []\navatar: \"\"\nattributes:\n  appearance: \"\"\n  background: \"\"\n  weapon: \"\"\nstate:\n  level: \"\"\n  health: \"\"\n  location: \"\"\nrelationships: []\n---\n\n<p></p>\n",
+        character_id, character_name
+    );
+
+    let character_path = path.join("characters").join(filename);
+    fs::write(character_path, template)
+        .map_err(|e| format!("创建角色文件失败: {}", e))?;
+
+    Ok(metadata)
+}
+
+// 加载角色内容
+#[tauri::command]
+fn load_character(project_path: String, character_id: String) -> Result<String, String> {
+    let path = PathBuf::from(&project_path);
+    let metadata_path = path.join("project.json");
+    let json = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("读取项目文件失败: {}", e))?;
+    let metadata: ProjectMetadata = serde_json::from_str(&json)
+        .map_err(|e| format!("解析项目文件失败: {}", e))?;
+
+    let character = metadata
+        .characters
+        .iter()
+        .find(|c| c.id == character_id)
+        .ok_or_else(|| "找不到角色".to_string())?;
+
+    let content = fs::read_to_string(path.join("characters").join(&character.filename))
+        .map_err(|e| format!("加载角色失败: {}", e))?;
+
+    Ok(content)
+}
+
+// 保存角色内容
+#[tauri::command]
+fn save_character(project_path: String, character_id: String, content: String) -> Result<(), String> {
+    let path = PathBuf::from(&project_path);
+    let metadata_path = path.join("project.json");
+    let json = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("读取项目文件失败: {}", e))?;
+    let metadata: ProjectMetadata = serde_json::from_str(&json)
+        .map_err(|e| format!("解析项目文件失败: {}", e))?;
+
+    let character = metadata
+        .characters
+        .iter()
+        .find(|c| c.id == character_id)
+        .ok_or_else(|| "找不到角色".to_string())?;
+
+    fs::write(path.join("characters").join(&character.filename), content)
+        .map_err(|e| format!("保存角色失败: {}", e))?;
+
+    Ok(())
+}
+
+// 重命名角色
+#[tauri::command]
+fn rename_character(
+    project_path: String,
+    character_id: String,
+    new_name: String,
+) -> Result<ProjectMetadata, String> {
+    let path = PathBuf::from(&project_path);
+    let metadata_path = path.join("project.json");
+    let json = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("读取项目文件失败: {}", e))?;
+    let mut metadata: ProjectMetadata = serde_json::from_str(&json)
+        .map_err(|e| format!("解析项目文件失败: {}", e))?;
+
+    if metadata
+        .characters
+        .iter()
+        .any(|character| character.name == new_name && character.id != character_id)
+    {
+        return Err("角色名已存在，请使用其他名称".to_string());
+    }
+
+    let target = metadata
+        .characters
+        .iter_mut()
+        .find(|character| character.id == character_id)
+        .ok_or_else(|| "找不到角色".to_string())?;
+    target.name = new_name;
+
+    let updated_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("序列化失败: {}", e))?;
+    fs::write(metadata_path, updated_json)
+        .map_err(|e| format!("写入元数据失败: {}", e))?;
+
+    Ok(metadata)
+}
+
+// 删除角色
+#[tauri::command]
+fn delete_character(project_path: String, character_id: String) -> Result<ProjectMetadata, String> {
+    let path = PathBuf::from(&project_path);
+    let metadata_path = path.join("project.json");
+    let json = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("读取项目文件失败: {}", e))?;
+    let mut metadata: ProjectMetadata = serde_json::from_str(&json)
+        .map_err(|e| format!("解析项目文件失败: {}", e))?;
+
+    let index = metadata
+        .characters
+        .iter()
+        .position(|character| character.id == character_id)
+        .ok_or_else(|| "找不到角色".to_string())?;
+
+    let removed = metadata.characters.remove(index);
+    let character_file = path.join("characters").join(removed.filename);
+    if character_file.exists() {
+        fs::remove_file(character_file).map_err(|e| format!("删除角色文件失败: {}", e))?;
+    }
+
+    let updated_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("序列化失败: {}", e))?;
+    fs::write(metadata_path, updated_json)
+        .map_err(|e| format!("写入元数据失败: {}", e))?;
+
+    Ok(metadata)
+}
+
+// 复制角色头像到项目目录
+#[tauri::command]
+fn copy_avatar_to_project(
+    project_path: String,
+    character_id: String,
+    source_path: String,
+) -> Result<String, String> {
+    let project = PathBuf::from(&project_path);
+    let source = PathBuf::from(&source_path);
+
+    if !source.exists() {
+        return Err("头像文件不存在".to_string());
+    }
+    if !source.is_file() {
+        return Err("选择的头像不是文件".to_string());
+    }
+
+    let avatars_dir = project.join("assets").join("avatars");
+    fs::create_dir_all(&avatars_dir)
+        .map_err(|e| format!("创建头像目录失败: {}", e))?;
+
+    let extension = source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("png");
+
+    let target = avatars_dir.join(format!("{}_avatar.{}", character_id, extension));
+
+    fs::copy(&source, &target).map_err(|e| format!("复制头像失败: {}", e))?;
+
+    Ok(target.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -284,6 +515,12 @@ pub fn run() {
             create_outline,
             load_outline,
             save_outline,
+            create_character,
+            load_character,
+            save_character,
+            rename_character,
+            delete_character,
+            copy_avatar_to_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

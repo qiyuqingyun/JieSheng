@@ -22,18 +22,31 @@ tauri-app/
 │   │   ├── lib.rs        # 文件操作命令
 │   │   └── main.rs       # 应用入口
 │   └── Cargo.toml        # Rust 依赖
-└── MVP_FEATURES.md       # 功能文档
+├── MVP_FEATURES.md       # 详细功能文档
+└── package.json
 ```
 
 ## ✨ 核心功能
 
-- **项目管理**：新建/打开写作项目
-- **章节管理**：创建、编辑、保存章节
-- **富文本编辑**：Tiptap 编辑器，支持格式化、撤销/重做
-- **自动保存**：3秒定时 + 窗口失焦自动保存
-- **快捷键**：Ctrl+S（保存）、Ctrl+B/I/U（格式化）、Ctrl+Z/Y（撤销/重做）
-- **专注模式**：Ctrl+\ 或 F11 隐藏所有 UI
-- **崩溃恢复**：localStorage 自动保存草稿
+- **项目管理**：新建/打开项目，自动初始化 `chapters/outlines/characters/assets`
+- **章节 + 大纲**：独立列表、独立文件、统一编辑体验
+- **角色卡系统**：角色库、卡片化编辑、关系绑定、头像本地化存储
+- **富文本编辑**：章节/大纲/角色小传共用编辑器（撤销/重做、统计、打字速度）
+- **自动保存**：3 秒定时 + 窗口失焦（章节/大纲/角色一致）
+- **快捷键**：保存/搜索/撤销/重做/专注模式，支持设置
+- **专注模式**：聚焦写作主区域
+- **安装包构建**：可生成 `.exe` (NSIS) 与 `.msi`
+
+## 📦 构建安装包
+
+```bash
+cd tauri-app
+yarn tauri build
+```
+
+产物目录：
+- `tauri-app/src-tauri/target/release/bundle/nsis/`
+- `tauri-app/src-tauri/target/release/bundle/msi/`
 
 ## 🛠️ 技术栈
 

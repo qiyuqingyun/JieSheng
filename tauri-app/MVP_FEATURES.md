@@ -1,147 +1,138 @@
 # Writer's IDE - MVP 功能清单
 
-## ✅ 已实现的核心功能
+## ✅ 当前已实现功能
 
 ### 1. 项目管理
-- **新建项目**：创建新的写作项目，自动生成项目目录结构
-- **打开项目**：打开已有的项目，加载所有章节
-- **项目结构**：
-  ```
-  我的小说/
-  ├── project.json      # 项目元数据（章节列表、顺序等）
-  └── chapters/         # 章节文件夹
-      ├── chapter_xxx.md
-      └── chapter_yyy.md
-  ```
+- 新建项目（先输入作品名，再选择目录）
+- 打开项目（含旧项目结构兼容）
+- 项目基础结构自动初始化：
 
-### 2. 章节管理
-- **新建章节**：在左侧边栏点击"新建"按钮创建章节
-- **章节列表**：左侧边栏显示所有章节，支持点击切换
-- **章节高亮**：当前编辑的章节会高亮显示
-- **章节内容**：每个章节独立保存为 Markdown 文件
+```text
+我的小说/
+├── project.json
+├── chapters/
+├── outlines/
+├── characters/
+└── assets/
+    └── avatars/
+```
 
-### 3. 富文本编辑器
-- **基于 Tiptap**：支持块级编辑的现代编辑器
-- **工具栏**：粗体、斜体、下划线、标题、列表、代码块
-- **撤销/重做**：支持编辑历史记录
-- **字数统计**：实时显示字符数和词数
+### 2. 章节与大纲
+- 章节：新建、切换、编辑、保存
+- 大纲：新建、切换、编辑、保存
+- 左侧面板可在章节/大纲间切换
+- 中间编辑区按当前对象切换对应编辑器
 
-### 4. 键盘快捷键
-- `Ctrl+S`：保存当前章节
-- `Ctrl+B`：加粗（在编辑器内）
-- `Ctrl+I`：斜体（在编辑器内）
-- `Ctrl+U`：下划线（在编辑器内）
-- `Ctrl+Z`：撤销
-- `Ctrl+Y`：重做
-- `Ctrl+\` 或 `F11`：切换专注模式
+### 3. 角色卡（MVP）
+- 角色库：新建、列表、搜索、按角色定位筛选
+- 角色编辑：
+   - 基础信息卡（定位、别名、标签）
+   - 静态属性卡（外貌、背景、武器）
+   - 动态状态卡（境界/健康/地点）
+   - 关系卡（按角色名搜索选择，底层绑定 targetId）
+   - 小传与设定笔记（富文本）
+- 角色重命名/删除
+- 角色内容写入 `characters/*.md`（YAML Frontmatter + 富文本正文）
 
-### 5. 自动保存
-- **定时保存**：每 3 秒自动检查并保存未保存的更改
-- **失焦保存**：窗口失去焦点时自动保存
-- **未保存提示**：顶部显示"● 未保存"提示
+### 4. 头像处理
+- 点击角色头像直接选择本地图片
+- 选择后自动复制到项目目录：`assets/avatars/`
+- 角色卡中保存项目内头像路径
 
-### 6. 专注模式
-- 按 `Ctrl+\` 或 `F11` 进入/退出专注模式
-- 隐藏顶部工具栏、左侧章节列表、右侧 AI 面板
-- 只保留编辑器，提供纯净的写作环境
-- 右上角显示退出提示
+### 5. 编辑器与保存
+- 通用 `DocumentEditor`（章节/大纲/角色复用）
+- 支持撤销/重做、字数/词数、打字速度（字/分）
+- 自动保存策略统一：
+   - 每 3 秒轮询保存未保存内容
+   - 窗口失焦立即保存
+- 顶部显示未保存状态
+- `Ctrl+S` 保存当前编辑对象（章节/大纲/角色）
 
-### 7. 崩溃恢复
-- **本地草稿**：编辑内容实时保存到 localStorage
-- **自动恢复**：应用启动时检测未保存的草稿
-- **恢复提示**：如果检测到 1 小时内的草稿，弹窗询问是否恢复
-- **自动清理**：成功保存后自动清除草稿
+### 6. 快捷键
+- 支持动作：`save`、`search`、`undo`、`redo`、`focusMode`
+- 支持快捷键设置与恢复默认
+- 专注模式：`Ctrl+\` 或 `F11`
 
-### 8. UI 界面
-- **三栏布局**：左侧章节列表 + 中间编辑器 + 右侧 AI 助手（预留）
-- **可折叠侧边栏**：支持隐藏/显示左右侧边栏
-- **项目信息显示**：顶部显示项目名称和保存状态
+### 7. 其他体验
+- 专注模式下隐藏非核心区域，仅保留写作主区域
+- 崩溃恢复（章节草稿）
+- 搜索面板
+- 新建项目/章节/大纲/角色统一使用应用内弹窗
 
-## 🚀 使用方法
+## 🧪 启动与构建
 
-### 启动开发环境
+### 开发
+
 ```bash
 cd tauri-app
 yarn tauri dev
 ```
 
-### 构建生产版本
+### 打包
+
 ```bash
 yarn tauri build
 ```
 
-## 📝 数据结构
+生成产物位置：
+- `src-tauri/target/release/bundle/nsis/*.exe`
+- `src-tauri/target/release/bundle/msi/*.msi`
 
-### ProjectMetadata（项目元数据）
+## 📝 关键数据结构
+
+### ProjectMetadata
+
 ```json
 {
-  "name": "我的小说",
-  "chapters": [
-    {
-      "id": "chapter_1234567890",
-      "title": "第一章",
-      "filename": "chapter_1234567890.md",
-      "order": 0
-    }
-  ]
+   "name": "我的小说",
+   "chapters": [],
+   "outlines": [],
+   "characters": []
 }
 ```
 
-### 章节文件
-- 格式：Markdown (HTML)
-- 位置：`项目目录/chapters/章节ID.md`
-- 内容：Tiptap 编辑器生成的 HTML
+### 角色卡文件（示意）
 
-## 🔧 技术栈
+```yaml
+---
+id: character_123
+schema_version: 1
+name: 林萧
+aliases: ["林老大"]
+role: "主角"
+tags: ["剑修", "护短"]
+avatar: "D:\\...\\assets\\avatars\\character_123_avatar.png"
+attributes:
+   appearance: ""
+   background: ""
+   weapon: ""
+state:
+   level: ""
+   health: ""
+   location: ""
+relationships:
+   - target: character_456
+      relation: "宿敌"
+custom_fields:
+   基础_阵营: "正道"
+---
 
-### 后端（Rust + Tauri）
-- `new_project` - 创建新项目
-- `open_project` - 打开项目
-- `create_chapter` - 创建章节
-- `load_chapter` - 加载章节内容
-- `save_chapter` - 保存章节内容
-- `update_metadata` - 更新项目元数据
+<p>角色小传...</p>
+```
 
-### 前端（React + TypeScript）
-- **ProjectContext**：全局项目状态管理
-- **RichEditor**：Tiptap 富文本编辑器
-- **App**：主应用布局和交互逻辑
+## 🔧 后端命令（当前）
+- `new_project`
+- `open_project`
+- `create_chapter` / `load_chapter` / `save_chapter`
+- `create_outline` / `load_outline` / `save_outline`
+- `create_character` / `load_character` / `save_character`
+- `rename_character` / `delete_character`
+- `copy_avatar_to_project`
+- `update_metadata`
 
-### 插件
-- `tauri-plugin-fs` - 文件系统操作
-- `tauri-plugin-dialog` - 文件选择对话框
-
-## 🎯 下一步计划（进阶功能）
-
-1. **章节操作增强**
-   - 重命名章节
-   - 删除章节
-   - 拖拽排序
-
-2. **高级编辑功能**
-   - 全文搜索（跨章节）
-   - 大纲跳转（章节内标题导航）
-   - 自定义块（角色卡、剧情分支等）
-
-3. **AI 集成**
-   - 连接 FastAPI 后端
-   - 续写建议
-   - 内容优化
-   - 角色一致性检查
-
-4. **数据存储升级**
-   - SQLite 数据库（替代 JSON）
-   - 版本历史
-   - 多版本分支
-
-5. **协作功能**
-   - Git 集成
-   - 云端同步
-   - 团队协作
-
-## 💡 提示
-
-- 首次使用请先"新建项目"或"打开项目"
-- 章节内容自动保存，无需担心意外关闭
-- 使用专注模式可以获得更好的写作体验
-- 所有数据保存在本地，保护隐私
+## 🎯 下一步（已规划）
+1. 正文 `@角色` 提及节点（底层绑定 characterId）
+2. 点击提及弹角色速览卡
+3. 右侧 Pin 多张角色卡
+4. 角色引用冲突检测与删除风险提示
+5. 导出“纯净正文”（移除辅助标记）

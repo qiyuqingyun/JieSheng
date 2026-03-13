@@ -4,6 +4,8 @@ import SearchPanel from "./components/SearchPanel";
 import KeySettingsPanel from "./components/KeySettingsPanel";
 import OutlinePanel from "./components/OutlinePanel";
 import OutlineEditor from "./components/OutlineEditor";
+import CharacterPanel from "./components/CharacterPanel";
+import CharacterEditor from "./components/CharacterEditor.tsx";
 import CreateItemDialog from "./components/CreateItemDialog";
 import { useProject } from "./contexts/ProjectContext";
 import { useKeyBindings } from "./contexts/KeyBindingsContext";
@@ -14,6 +16,7 @@ function App() {
     projectMetadata,
     currentChapterId,
     currentOutlineId,
+    currentCharacterId,
     hasUnsavedChanges,
     newProject,
     openProject,
@@ -22,13 +25,15 @@ function App() {
     loadChapter,
     saveCurrentChapter,
     saveCurrentOutline,
+    saveCurrentCharacter,
     createOutline,
+    createCharacter,
     isProjectOpen,
   } = useProject();
 
   const { getBinding } = useKeyBindings();
 
-  const [leftPanel, setLeftPanel] = useState<'chapters' | 'outline'>('chapters'); // 左侧面板：章节列表/大纲
+  const [leftPanel, setLeftPanel] = useState<'chapters' | 'outline' | 'characters'>('chapters'); // 左侧面板：章节列表/大纲/角色
   const [showAI, setShowAI] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const [showSearchPanel, setShowSearchPanel] = useState(false);
@@ -36,6 +41,7 @@ function App() {
   const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false);
   const [showCreateChapterDialog, setShowCreateChapterDialog] = useState(false);
   const [showCreateOutlineDialog, setShowCreateOutlineDialog] = useState(false);
+  const [showCreateCharacterDialog, setShowCreateCharacterDialog] = useState(false);
 
   // 处理新建章节
   const handleCreateChapter = () => {
@@ -47,11 +53,18 @@ function App() {
     setShowCreateOutlineDialog(true);
   };
 
+  // 处理新建角色
+  const handleCreateCharacter = () => {
+    setShowCreateCharacterDialog(true);
+  };
+
   // 处理保存（Ctrl+S）
   const handleSave = () => {
     if (hasUnsavedChanges) {
       if (leftPanel === "outline" && currentOutlineId) {
         saveCurrentOutline();
+      } else if (leftPanel === "characters" && currentCharacterId) {
+        saveCurrentCharacter();
       } else if (currentChapterId) {
         saveCurrentChapter();
       }
@@ -116,7 +129,16 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [hasUnsavedChanges, focusMode, isProjectOpen]);
+  }, [
+    hasUnsavedChanges,
+    focusMode,
+    isProjectOpen,
+    leftPanel,
+    currentChapterId,
+    currentOutlineId,
+    currentCharacterId,
+    getBinding,
+  ]);
 
   return (
     <div className="flex h-screen flex-col bg-white">
@@ -187,6 +209,16 @@ function App() {
                     }`}
                   >
                     📋 大纲
+                  </button>
+                  <button
+                    onClick={() => setLeftPanel('characters')}
+                    className={`px-3 py-1 text-sm font-medium rounded ${
+                      leftPanel === 'characters'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    👤 角色
                   </button>
                   <button
                     onClick={() => setShowAI(!showAI)}
@@ -272,7 +304,7 @@ function App() {
                   )}
                 </div>
               </>
-            ) : (
+            ) : leftPanel === 'outline' ? (
               // 大纲面板
               <>
                 <div className="flex items-center justify-between p-4 border-b border-gray-200">
@@ -287,6 +319,21 @@ function App() {
                 </div>
                 <OutlinePanel />
               </>
+            ) : (
+              // 角色库面板
+              <>
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-900">角色库</h2>
+                  <button
+                    onClick={handleCreateCharacter}
+                    className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+                    title="新建角色"
+                  >
+                    + 新建
+                  </button>
+                </div>
+                <CharacterPanel />
+              </>
             )}
           </aside>
         )}
@@ -297,6 +344,9 @@ function App() {
             leftPanel === 'outline' && currentOutlineId ? (
               // 大纲编辑模式
               <OutlineEditor />
+            ) : leftPanel === 'characters' && currentCharacterId ? (
+              // 角色编辑模式
+              <CharacterEditor />
             ) : currentChapterId ? (
               // 章节编辑模式
               <RichEditor />
@@ -304,7 +354,7 @@ function App() {
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-lg mb-2">📝</p>
-                  <p>请从左侧选择或创建章节/大纲开始写作</p>
+                  <p>请从左侧选择或创建章节/大纲/角色开始写作</p>
                 </div>
               </div>
             )
@@ -376,6 +426,16 @@ function App() {
         confirmText="创建大纲"
         onClose={() => setShowCreateOutlineDialog(false)}
         onConfirm={(title) => createOutline(title)}
+      />
+
+      <CreateItemDialog
+        open={showCreateCharacterDialog}
+        title="新建角色"
+        label="角色名称"
+        placeholder="例如：林萧"
+        confirmText="创建角色"
+        onClose={() => setShowCreateCharacterDialog(false)}
+        onConfirm={(name) => createCharacter(name)}
       />
 
       {/* 快捷键设置面板 */}

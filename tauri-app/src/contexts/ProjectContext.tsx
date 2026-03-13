@@ -18,11 +18,21 @@ export interface OutlineInfo {
   order: number;
 }
 
+// 角色信息类型
+export interface CharacterInfo {
+  id: string;
+  name: string;
+  filename: string;
+  role: string;
+  tags: string[];
+}
+
 // 项目元数据类型
 export interface ProjectMetadata {
   name: string;
   chapters: ChapterInfo[];
   outlines: OutlineInfo[];
+  characters: CharacterInfo[];
 }
 
 // Context 状态类型
@@ -33,6 +43,8 @@ interface ProjectContextType {
   currentChapterContent: string;
   currentOutlineId: string | null;
   currentOutlineContent: string;
+  currentCharacterId: string | null;
+  currentCharacterContent: string;
   hasUnsavedChanges: boolean;
   
   // 项目操作
@@ -52,6 +64,15 @@ interface ProjectContextType {
   loadOutline: (outlineId: string) => Promise<void>;
   saveCurrentOutline: () => Promise<void>;
   updateOutlineContent: (content: string) => void;
+
+  // 角色操作
+  createCharacter: (name: string) => Promise<void>;
+  loadCharacter: (characterId: string) => Promise<void>;
+  saveCurrentCharacter: () => Promise<void>;
+  updateCharacterContent: (content: string) => void;
+  updateCharacterMeta: (characterId: string, updates: { role?: string; tags?: string[] }) => Promise<void>;
+  renameCharacter: (characterId: string, newName: string) => Promise<void>;
+  deleteCharacter: (characterId: string) => Promise<void>;
   
   // 状态查询
   isProjectOpen: () => boolean;
@@ -66,7 +87,28 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentChapterContent, setCurrentChapterContent] = useState('');
   const [currentOutlineId, setCurrentOutlineId] = useState<string | null>(null);
   const [currentOutlineContent, setCurrentOutlineContent] = useState('');
+  const [currentCharacterId, setCurrentCharacterId] = useState<string | null>(null);
+  const [currentCharacterContent, setCurrentCharacterContent] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  const parseCharacterMetaFromMarkdown = (markdown: string): { role?: string; tags?: string[] } => {
+    const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontmatterMatch) return {};
+
+    const frontmatter = frontmatterMatch[1];
+    const roleMatch = frontmatter.match(/^role:\s*(.+)$/m);
+    const tagsMatch = frontmatter.match(/^tags:\s*\[(.*)\]$/m);
+
+    const role = roleMatch?.[1]?.trim() || undefined;
+    const tags = tagsMatch
+      ? tagsMatch[1]
+          .split(',')
+          .map((item) => item.trim().replace(/^"|"$/g, ''))
+          .filter(Boolean)
+      : undefined;
+
+    return { role, tags };
+  };
 
   // 应用启动时，尝试恢复草稿
   useEffect(() => {
@@ -133,6 +175,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setProjectMetadata(metadata);
           setCurrentChapterId(null);
           setCurrentChapterContent('');
+          setCurrentOutlineId(null);
+          setCurrentOutlineContent('');
+          setCurrentCharacterId(null);
+          setCurrentCharacterContent('');
           setHasUnsavedChanges(false);
         } catch (invokeError) {
           console.error('创建项目失败:', invokeError);
@@ -163,6 +209,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setProjectMetadata(metadata);
           setCurrentChapterId(null);
           setCurrentChapterContent('');
+          setCurrentOutlineId(null);
+          setCurrentOutlineContent('');
+          setCurrentCharacterId(null);
+          setCurrentCharacterContent('');
           setHasUnsavedChanges(false);
         } catch (invokeError) {
           // Tauri invoke 失败，说明不是有效的 Writer's IDE 项目
@@ -227,6 +277,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         setCurrentChapterId(chapterId);
         setCurrentChapterContent(content);
+        setCurrentOutlineId(null);
+        setCurrentOutlineContent('');
+        setCurrentCharacterId(null);
+        setCurrentCharacterContent('');
         setHasUnsavedChanges(false);
       } catch (loadError) {
         console.error('加载章节失败:', loadError);
@@ -308,6 +362,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentChapterContent('');
     setCurrentOutlineId(null);
     setCurrentOutlineContent('');
+    setCurrentCharacterId(null);
+    setCurrentCharacterContent('');
     setHasUnsavedChanges(false);
   }, [hasUnsavedChanges]);
 
@@ -345,6 +401,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCurrentOutlineId(outlineId);
       setCurrentOutlineContent(content);
       setCurrentChapterId(null); // 切换到大纲时清除章节
+      setCurrentChapterContent('');
+      setCurrentCharacterId(null);
+      setCurrentCharacterContent('');
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error('加载大纲失败:', error);
@@ -376,6 +435,167 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
+  // 创建新角色
+  const createCharacter = useCallback(async (name: string) => {
+    if (!projectPath) return;
+
+    try {
+      const characterId = `character_${Date.now()}`;
+      const updatedMetadata = await invoke<ProjectMetadata>('create_character', {
+        projectPath,
+        characterName: name,
+        characterId,
+      });
+
+      setProjectMetadata(updatedMetadata);
+      await loadCharacter(characterId);
+    } catch (error) {
+      console.error('创建角色失败:', error);
+      await message(`❌ 创建角色失败: ${error}`, { title: '创建角色失败', kind: 'error' });
+    }
+  }, [projectPath]);
+
+  // 加载角色
+  const loadCharacter = useCallback(async (characterId: string) => {
+    if (!projectPath) return;
+
+    try {
+      const content = await invoke<string>('load_character', {
+        projectPath,
+        characterId,
+      });
+
+      setCurrentCharacterId(characterId);
+      setCurrentCharacterContent(content);
+      setCurrentChapterId(null);
+      setCurrentChapterContent('');
+      setCurrentOutlineId(null);
+      setCurrentOutlineContent('');
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('加载角色失败:', error);
+      await message(`❌ 加载角色失败: ${error}`, { title: '加载角色失败', kind: 'error' });
+    }
+  }, [projectPath]);
+
+  // 保存当前角色
+  const saveCurrentCharacter = useCallback(async () => {
+    if (!projectPath || !currentCharacterId) return;
+
+    try {
+      await invoke('save_character', {
+        projectPath,
+        characterId: currentCharacterId,
+        content: currentCharacterContent,
+      });
+
+      if (projectMetadata) {
+        const parsedMeta = parseCharacterMetaFromMarkdown(currentCharacterContent);
+        const updatedMetadata = {
+          ...projectMetadata,
+          characters: projectMetadata.characters.map((character) =>
+            character.id === currentCharacterId
+              ? {
+                  ...character,
+                  role: parsedMeta.role ?? character.role,
+                  tags: parsedMeta.tags ?? character.tags,
+                }
+              : character
+          ),
+        };
+
+        await invoke('update_metadata', {
+          projectPath,
+          metadata: updatedMetadata,
+        });
+
+        setProjectMetadata(updatedMetadata);
+      }
+
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('保存角色失败:', error);
+      await message(`❌ 保存角色失败: ${error}`, { title: '保存角色失败', kind: 'error' });
+    }
+  }, [projectPath, currentCharacterId, currentCharacterContent, projectMetadata]);
+
+  // 更新角色内容
+  const updateCharacterContent = useCallback((content: string) => {
+    setCurrentCharacterContent(content);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // 更新角色元信息
+  const updateCharacterMeta = useCallback(async (
+    characterId: string,
+    updates: { role?: string; tags?: string[] }
+  ) => {
+    if (!projectPath || !projectMetadata) return;
+
+    try {
+      const updatedMetadata = {
+        ...projectMetadata,
+        characters: projectMetadata.characters.map((character) =>
+          character.id === characterId
+            ? {
+                ...character,
+                role: updates.role ?? character.role,
+                tags: updates.tags ?? character.tags,
+              }
+            : character
+        ),
+      };
+
+      await invoke('update_metadata', {
+        projectPath,
+        metadata: updatedMetadata,
+      });
+
+      setProjectMetadata(updatedMetadata);
+    } catch (error) {
+      console.error('更新角色元信息失败:', error);
+      await message(`❌ 更新角色元信息失败: ${error}`, { title: '更新角色元信息失败', kind: 'error' });
+    }
+  }, [projectPath, projectMetadata]);
+
+  // 重命名角色
+  const renameCharacter = useCallback(async (characterId: string, newName: string) => {
+    if (!projectPath) return;
+
+    try {
+      const updatedMetadata = await invoke<ProjectMetadata>('rename_character', {
+        projectPath,
+        characterId,
+        newName,
+      });
+      setProjectMetadata(updatedMetadata);
+    } catch (error) {
+      console.error('重命名角色失败:', error);
+      await message(`❌ 重命名角色失败: ${error}`, { title: '重命名角色失败', kind: 'error' });
+    }
+  }, [projectPath]);
+
+  // 删除角色
+  const deleteCharacter = useCallback(async (characterId: string) => {
+    if (!projectPath) return;
+
+    try {
+      const updatedMetadata = await invoke<ProjectMetadata>('delete_character', {
+        projectPath,
+        characterId,
+      });
+      setProjectMetadata(updatedMetadata);
+
+      if (currentCharacterId === characterId) {
+        setCurrentCharacterId(null);
+        setCurrentCharacterContent('');
+      }
+    } catch (error) {
+      console.error('删除角色失败:', error);
+      await message(`❌ 删除角色失败: ${error}`, { title: '删除角色失败', kind: 'error' });
+    }
+  }, [projectPath, currentCharacterId]);
+
   // 自动保存：定时器（3秒）+ window blur
   useEffect(() => {
     // 定时自动保存
@@ -387,6 +607,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else if (currentOutlineId) {
           console.log('自动保存大纲（定时器）...');
           saveCurrentOutline();
+        } else if (currentCharacterId) {
+          console.log('自动保存角色（定时器）...');
+          saveCurrentCharacter();
         }
       }
     }, 3000); // 每 3 秒检查一次
@@ -400,6 +623,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else if (currentOutlineId) {
           console.log('自动保存大纲（失焦）...');
           saveCurrentOutline();
+        } else if (currentCharacterId) {
+          console.log('自动保存角色（失焦）...');
+          saveCurrentCharacter();
         }
       }
     };
@@ -409,7 +635,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clearInterval(autoSaveInterval);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [hasUnsavedChanges, projectPath, currentChapterId, currentOutlineId, saveCurrentChapter, saveCurrentOutline]);
+  }, [
+    hasUnsavedChanges,
+    projectPath,
+    currentChapterId,
+    currentOutlineId,
+    currentCharacterId,
+    saveCurrentChapter,
+    saveCurrentOutline,
+    saveCurrentCharacter,
+  ]);
 
   const value: ProjectContextType = {
     projectPath,
@@ -418,6 +653,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     currentChapterContent,
     currentOutlineId,
     currentOutlineContent,
+    currentCharacterId,
+    currentCharacterContent,
     hasUnsavedChanges,
     newProject,
     openProject,
@@ -431,6 +668,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     loadOutline,
     saveCurrentOutline,
     updateOutlineContent,
+    createCharacter,
+    loadCharacter,
+    saveCurrentCharacter,
+    updateCharacterContent,
+    updateCharacterMeta,
+    renameCharacter,
+    deleteCharacter,
     isProjectOpen,
   };
 
