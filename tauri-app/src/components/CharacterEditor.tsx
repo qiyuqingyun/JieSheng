@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { confirm, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import CreateItemDialog from "./CreateItemDialog";
@@ -34,23 +34,25 @@ type CharacterForm = {
   notesHtml: string;
 };
 
-const EMPTY_FORM: CharacterForm = {
-  aliases: "",
-  role: "配角",
-  tags: "",
-  avatar: "",
-  appearance: "",
-  background: "",
-  weapon: "",
-  level: "",
-  health: "",
-  location: "",
-  relationships: [],
-  basicCustomFields: [],
-  attributeCustomFields: [],
-  stateCustomFields: [],
-  notesHtml: "<p></p>",
-};
+function createEmptyForm(): CharacterForm {
+  return {
+    aliases: "",
+    role: "配角",
+    tags: "",
+    avatar: "",
+    appearance: "",
+    background: "",
+    weapon: "",
+    level: "",
+    health: "",
+    location: "",
+    relationships: [],
+    basicCustomFields: [],
+    attributeCustomFields: [],
+    stateCustomFields: [],
+    notesHtml: "<p></p>",
+  };
+}
 
 function parseArrayValue(raw: string): string[] {
   const cleaned = raw.trim().replace(/^\[/, "").replace(/\]$/, "");
@@ -80,7 +82,7 @@ function parseCharacterMarkdown(markdown: string, fallbackRole: string, fallback
   const match = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) {
     return {
-      ...EMPTY_FORM,
+      ...createEmptyForm(),
       role: fallbackRole || "配角",
       tags: fallbackTags.join(","),
       notesHtml: markdown || "<p></p>",
@@ -91,7 +93,7 @@ function parseCharacterMarkdown(markdown: string, fallbackRole: string, fallback
   const body = match[2] || "<p></p>";
   const lines = frontmatter.split("\n");
   const form: CharacterForm = {
-    ...EMPTY_FORM,
+    ...createEmptyForm(),
     role: fallbackRole || "配角",
     tags: fallbackTags.join(","),
     notesHtml: body,
@@ -214,6 +216,13 @@ function parseCharacterMarkdown(markdown: string, fallbackRole: string, fallback
   return form;
 }
 
+function parseMarkdownCharacterId(markdown: string): string {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return "";
+  const idMatch = match[1].match(/^id:\s*(.+)$/m);
+  return idMatch?.[1]?.trim() || "";
+}
+
 function composeCustomFields(fields: CustomField[]): string {
   const lines = fields
     .filter((field) => field.key.trim())
@@ -222,6 +231,15 @@ function composeCustomFields(fields: CustomField[]): string {
         `  ${field.key.trim().replace(/"/g, '\\"')}: "${field.value.trim().replace(/"/g, '\\"')}"`
     );
   return lines.length > 0 ? lines.join("\n") : "  {}";
+}
+
+function buildDefaultCustomFieldKey(fields: CustomField[]): string {
+  const used = new Set(fields.map((field) => field.key.trim()).filter(Boolean));
+  let idx = 1;
+  while (used.has(`新字段${idx}`)) {
+    idx += 1;
+  }
+  return `新字段${idx}`;
 }
 
 function composeCharacterMarkdown(characterId: string, name: string, form: CharacterForm): string {
@@ -293,6 +311,7 @@ export default function CharacterEditor() {
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [form, setForm] = useState<CharacterForm | null>(null);
   const [newTag, setNewTag] = useState("");
+  const initializedCharacterIdRef = useRef<string | null>(null);
 
   const currentCharacter = useMemo(
     () => projectMetadata?.characters.find((character) => character.id === currentCharacterId),
@@ -308,10 +327,28 @@ export default function CharacterEditor() {
   }, [projectMetadata]);
 
   useEffect(() => {
+    setForm(null);
+    setNewTag("");
+    initializedCharacterIdRef.current = null;
+  }, [currentCharacterId]);
+
+  useEffect(() => {
     if (!currentCharacter) {
       setForm(null);
+      initializedCharacterIdRef.current = null;
       return;
     }
+
+    const contentCharacterId = parseMarkdownCharacterId(currentCharacterContent);
+    if (contentCharacterId && contentCharacterId !== currentCharacter.id) {
+      // loadCharacter 异步切换时，先等到对应角色内容就绪，避免把旧角色数据解析进新角色
+      return;
+    }
+
+    if (initializedCharacterIdRef.current === currentCharacter.id && form) {
+      return;
+    }
+
     setForm(
       parseCharacterMarkdown(
         currentCharacterContent,
@@ -319,7 +356,16 @@ export default function CharacterEditor() {
         currentCharacter.tags || []
       )
     );
-  }, [currentCharacterId]);
+    setNewTag("");
+    initializedCharacterIdRef.current = currentCharacter.id;
+  }, [
+    currentCharacterId,
+    currentCharacter?.id,
+    currentCharacter?.role,
+    currentCharacter?.tags,
+    currentCharacterContent,
+    form,
+  ]);
 
   useEffect(() => {
     if (!form) return;
@@ -334,14 +380,6 @@ export default function CharacterEditor() {
       };
     });
   }, [characterNameById]);
-
-  useEffect(() => {
-    if (!currentCharacter || !form) return;
-    const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, form);
-    if (markdown !== currentCharacterContent) {
-      updateCharacterContent(markdown);
-    }
-  }, [form, currentCharacter?.id, currentCharacter?.name, currentCharacterContent, updateCharacterContent]);
 
   if (!currentCharacterId || !currentCharacter || !form) {
     return (
@@ -366,7 +404,15 @@ export default function CharacterEditor() {
     : "";
 
   const updateField = (key: keyof CharacterForm, value: string) => {
-    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+    setForm((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, [key]: value };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, next);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return next;
+    });
   };
 
   const updateRelationship = (index: number, patch: Partial<CharacterRelation>) => {
@@ -374,28 +420,97 @@ export default function CharacterEditor() {
       if (!prev) return prev;
       const next = [...prev.relationships];
       next[index] = { ...next[index], ...patch };
-      return { ...prev, relationships: next };
+      const updatedForm = { ...prev, relationships: next };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, updatedForm);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return updatedForm;
     });
   };
 
   const addRelationship = () => {
     setForm((prev) => {
       if (!prev) return prev;
-      return {
+      const updatedForm = {
         ...prev,
         relationships: [...prev.relationships, { targetId: "", relation: "", query: "" }],
       };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, updatedForm);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return updatedForm;
     });
   };
 
   const removeRelationship = (index: number) => {
+    const relationToRemove = form.relationships[index];
+
     setForm((prev) => {
       if (!prev) return prev;
-      return {
+      const updatedForm = {
         ...prev,
         relationships: prev.relationships.filter((_, i) => i !== index),
       };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, updatedForm);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return updatedForm;
     });
+
+    const syncReciprocalDelete = async () => {
+      if (!projectPath || !relationToRemove?.targetId) return;
+      if (relationToRemove.targetId === currentCharacter.id) return;
+
+      const targetCharacter = (projectMetadata?.characters ?? []).find(
+        (character) => character.id === relationToRemove.targetId
+      );
+      if (!targetCharacter) return;
+
+      try {
+        const targetMarkdown = await invoke<string>("load_character", {
+          projectPath,
+          characterId: targetCharacter.id,
+        });
+
+        const targetForm = parseCharacterMarkdown(
+          targetMarkdown,
+          targetCharacter.role || "",
+          targetCharacter.tags || []
+        );
+
+        const nextRelationships = targetForm.relationships.filter(
+          (row) => row.targetId !== currentCharacter.id
+        );
+
+        if (nextRelationships.length === targetForm.relationships.length) {
+          return;
+        }
+
+        const updatedTargetForm: CharacterForm = {
+          ...targetForm,
+          relationships: nextRelationships,
+        };
+
+        const updatedTargetMarkdown = composeCharacterMarkdown(
+          targetCharacter.id,
+          targetCharacter.name,
+          updatedTargetForm
+        );
+
+        await invoke("save_character", {
+          projectPath,
+          characterId: targetCharacter.id,
+          content: updatedTargetMarkdown,
+        });
+      } catch (error) {
+        console.error("同步删除对向关系失败:", error);
+      }
+    };
+
+    void syncReciprocalDelete();
   };
 
   const updateCustomField = (
@@ -407,17 +522,28 @@ export default function CharacterEditor() {
       if (!prev) return prev;
       const next = [...prev[section]];
       next[index] = { ...next[index], ...patch };
-      return { ...prev, [section]: next };
+      const updatedForm = { ...prev, [section]: next };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, updatedForm);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return updatedForm;
     });
   };
 
   const addCustomField = (section: "basicCustomFields" | "attributeCustomFields" | "stateCustomFields") => {
     setForm((prev) => {
       if (!prev) return prev;
-      return {
+      const defaultKey = buildDefaultCustomFieldKey(prev[section]);
+      const updatedForm = {
         ...prev,
-        [section]: [...prev[section], { key: "", value: "" }],
+        [section]: [...prev[section], { key: defaultKey, value: "" }],
       };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, updatedForm);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return updatedForm;
     });
   };
 
@@ -427,10 +553,15 @@ export default function CharacterEditor() {
   ) => {
     setForm((prev) => {
       if (!prev) return prev;
-      return {
+      const updatedForm = {
         ...prev,
         [section]: prev[section].filter((_, i) => i !== index),
       };
+      const markdown = composeCharacterMarkdown(currentCharacter.id, currentCharacter.name, updatedForm);
+      if (markdown !== currentCharacterContent) {
+        updateCharacterContent(markdown);
+      }
+      return updatedForm;
     });
   };
 
@@ -597,25 +728,33 @@ export default function CharacterEditor() {
             </label>
 
             {form.basicCustomFields.map((row, index) => (
-              <div key={`basic-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <input
-                  value={row.key}
-                  onChange={(e) => updateCustomField("basicCustomFields", index, { key: e.target.value })}
-                  placeholder="自定义字段名"
-                  className="rounded border border-gray-300 px-2 py-1 text-xs"
-                />
-                <input
-                  value={row.value}
-                  onChange={(e) => updateCustomField("basicCustomFields", index, { value: e.target.value })}
-                  placeholder="字段值"
-                  className="rounded border border-gray-300 px-2 py-1 text-xs"
-                />
-                <button
-                  onClick={() => removeCustomField("basicCustomFields", index)}
-                  className="rounded border border-red-300 bg-red-50 px-2 text-xs text-red-700"
-                >
-                  删
-                </button>
+              <div key={`basic-${index}`} className="rounded border border-gray-200 p-2">
+                <label className="block text-xs text-gray-600">
+                  字段名
+                  <input
+                    value={row.key}
+                    onChange={(e) => updateCustomField("basicCustomFields", index, { key: e.target.value })}
+                    placeholder="如：阵营/立场/身份"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </label>
+                <label className="mt-2 block text-xs text-gray-600">
+                  字段内容
+                  <input
+                    value={row.value}
+                    onChange={(e) => updateCustomField("basicCustomFields", index, { value: e.target.value })}
+                    placeholder="填写该字段的内容"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </label>
+                <div className="mt-2 text-right">
+                  <button
+                    onClick={() => removeCustomField("basicCustomFields", index)}
+                    className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                  >
+                    删除字段
+                  </button>
+                </div>
               </div>
             ))}
             <button
@@ -656,25 +795,33 @@ export default function CharacterEditor() {
             </label>
 
             {form.attributeCustomFields.map((row, index) => (
-              <div key={`attr-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <input
-                  value={row.key}
-                  onChange={(e) => updateCustomField("attributeCustomFields", index, { key: e.target.value })}
-                  placeholder="自定义字段名"
-                  className="rounded border border-gray-300 px-2 py-1 text-xs"
-                />
-                <input
-                  value={row.value}
-                  onChange={(e) => updateCustomField("attributeCustomFields", index, { value: e.target.value })}
-                  placeholder="字段值"
-                  className="rounded border border-gray-300 px-2 py-1 text-xs"
-                />
-                <button
-                  onClick={() => removeCustomField("attributeCustomFields", index)}
-                  className="rounded border border-red-300 bg-red-50 px-2 text-xs text-red-700"
-                >
-                  删
-                </button>
+              <div key={`attr-${index}`} className="rounded border border-gray-200 p-2">
+                <label className="block text-xs text-gray-600">
+                  字段名
+                  <input
+                    value={row.key}
+                    onChange={(e) => updateCustomField("attributeCustomFields", index, { key: e.target.value })}
+                    placeholder="如：体质/天赋/血脉"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </label>
+                <label className="mt-2 block text-xs text-gray-600">
+                  字段内容
+                  <input
+                    value={row.value}
+                    onChange={(e) => updateCustomField("attributeCustomFields", index, { value: e.target.value })}
+                    placeholder="填写该字段的内容"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </label>
+                <div className="mt-2 text-right">
+                  <button
+                    onClick={() => removeCustomField("attributeCustomFields", index)}
+                    className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                  >
+                    删除字段
+                  </button>
+                </div>
               </div>
             ))}
             <button
@@ -715,25 +862,33 @@ export default function CharacterEditor() {
             </label>
 
             {form.stateCustomFields.map((row, index) => (
-              <div key={`state-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <input
-                  value={row.key}
-                  onChange={(e) => updateCustomField("stateCustomFields", index, { key: e.target.value })}
-                  placeholder="自定义字段名"
-                  className="rounded border border-gray-300 px-2 py-1 text-xs"
-                />
-                <input
-                  value={row.value}
-                  onChange={(e) => updateCustomField("stateCustomFields", index, { value: e.target.value })}
-                  placeholder="字段值"
-                  className="rounded border border-gray-300 px-2 py-1 text-xs"
-                />
-                <button
-                  onClick={() => removeCustomField("stateCustomFields", index)}
-                  className="rounded border border-red-300 bg-red-50 px-2 text-xs text-red-700"
-                >
-                  删
-                </button>
+              <div key={`state-${index}`} className="rounded border border-gray-200 p-2">
+                <label className="block text-xs text-gray-600">
+                  字段名
+                  <input
+                    value={row.key}
+                    onChange={(e) => updateCustomField("stateCustomFields", index, { key: e.target.value })}
+                    placeholder="如：情绪/目标/负面状态"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </label>
+                <label className="mt-2 block text-xs text-gray-600">
+                  字段内容
+                  <input
+                    value={row.value}
+                    onChange={(e) => updateCustomField("stateCustomFields", index, { value: e.target.value })}
+                    placeholder="填写该字段的内容"
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </label>
+                <div className="mt-2 text-right">
+                  <button
+                    onClick={() => removeCustomField("stateCustomFields", index)}
+                    className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                  >
+                    删除字段
+                  </button>
+                </div>
               </div>
             ))}
             <button
