@@ -1,0 +1,51 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/build/
+frontend/coverage/
+frontend/*.tsbuildinfo
+
+# Rust / Tauri
+target/
+app/target/
+app/gen/
+app/resources/
+
+# Python / uv
+ai-worker/.venv/
+ai-worker/__pycache__/
+ai-worker/src/**/__pycache__/
+ai-worker/requirements.packaging.txt
+.uv-cache/
+.uv-python/
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary project data
+tmp-project/

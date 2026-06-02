@@ -1,13 +1,14 @@
 {
-  "name": "tauri-app",
+  "name": "jiesheng-sidecar-frontend",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "yarn tsc && yarn vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "prepare:ai-worker": "powershell -ExecutionPolicy Bypass -File ../scripts/prepare-ai-worker.ps1",
+    "tauri": "cd ../app && ../frontend/node_modules/.bin/tauri.cmd"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

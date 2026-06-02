@@ -1,0 +1,9 @@
+[project]
+name = "jiesheng-ai-worker"
+version = "0.1.0"
+description = "AI/RAG worker for JieSheng desktop."
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv]
+package = false
