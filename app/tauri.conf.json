@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "cd ..\\frontend && yarn dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "powershell -ExecutionPolicy Bypass -File D:\\jieshenaiwriting\\JieSheng\\scripts\\build-all.ps1",
+    "beforeBuildCommand": "powershell -ExecutionPolicy Bypass -File scripts\\build-all.ps1",
     "frontendDist": "../frontend/dist"
   },
   "app": {
